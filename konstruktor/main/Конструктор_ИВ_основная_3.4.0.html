@@ -337,6 +337,15 @@ table.bank9 td label.small{display:flex;gap:5px;align-items:center;white-space:n
 .rbgrp{margin:10px 0;padding:8px 10px;border-left:3px solid var(--acc);background:var(--panel2);border-radius:6px}
 .rbchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .peds label[data-rbped]{cursor:pointer}
+
+/* редактор банка v3.4.0: правка/перенос фраз и галочки «основа для целей» */
+.aschks{margin:2px 0 2px 8px;font-size:.85em;color:var(--mut,#555)}
+.aschk{display:inline-flex;align-items:center;gap:3px;margin-right:8px;cursor:pointer;border:1px solid #ccc;border-radius:10px;padding:1px 7px}
+.aschk.on{background:var(--acc,#2e7d32);color:#fff;border-color:var(--acc,#2e7d32)}
+.rbedit{margin:0 0 8px 8px}
+.rbmv summary{cursor:pointer;font-size:.82em;color:var(--mut,#555)}
+.rbmv textarea{width:100%;box-sizing:border-box;font:inherit;margin-top:4px}
+input.ro{background:#f1f1f1;color:#555}
 </style>
 </head>
 <body>
@@ -385,7 +394,7 @@ table.bank9 td label.small{display:flex;gap:5px;align-items:center;white-space:n
    оценке «не проявляется»; удалено поле example; добавлен шаг 8 «Наблюдения
    с занятий»; банк фраз перенесён внутрь последнего шага.
    ========================================================================== */
-const V2VER = '3.3.0';   // режим «Редактор банка»: банк фраз как отдельный инструмент из трёх секций
+const V2VER = '3.4.0';   // редактор банка: связь оценки со статусом (0-1→S0, 2-3→S1, 4→S2, 5-6→S3), перенос и правка фраз, галочки АС→цель («учитывая X, работать над Y»)
 let BANK_RETURN_STAGE = 9;   // шаг, на который возвращаемся из банка фраз
 /* Формат файлов проекта основной версии — СВОЙ, не совместим с проектами старого форка V2
    (несовместимы шкалы сфер 0…6 и 5…1): чужие файлы отвергаются при загрузке. */
@@ -824,10 +833,36 @@ function rbPhrasesFor(sid,ped){
   const k=((BANK.sphere_keys||{})[sid]||{})[String(ped)]||{};
   const ids=(k.as||[]).filter(id=>byId(id));
   const micros=rbSphereMicros(sid);
-  const want=['S3','S2','S1','S0','SN'][ped];   // соответствие оценки статусу фразы
+  const want=pedToStatus(ped);   // связь оценки со статусом фразы: 0-1→S0, 2-3→S1, 4→S2, 5-6→S3
   (BANK.phrases||[]).forEach(p=>{ if(p.active!==false && p.block==='AS' && micros.indexOf(p.micro)>=0
     && String(p.status||'').split(',')[0]===want && ids.indexOf(p.id)<0) ids.push(p.id); });
   return ids;
+}
+/* соответствие оценки сферы (0…6) статусу фразы АС — единый для показа ячейки и автостатуса новой фразы */
+const PED2STATUS={0:'S0',1:'S0',2:'S1',3:'S1',4:'S2',5:'S3',6:'S3'};
+function pedToStatus(ped){ return PED2STATUS[ped]||'S1'; }
+/* правка формулировки существующей фразы (редактор банка) */
+function rbEditPhraseText(phraseId,text){
+  const p=byId(phraseId); if(!p) return false;
+  const t=String(text||'').trim(); if(!t){ flash('Формулировка не может быть пустой'); return false; }
+  if(t===p.text) return false;
+  p.text=t; persistBank(); SPH_MAPS=null; BANK=indexBank(BANK);
+  flash('Формулировка '+p.id+' обновлена'); return true;
+}
+/* перенос фразы АС в другую ячейку (сфера+оценка): меняем микроблок, статус и привязку в ключе сферы */
+function rbMovePhrase(phraseId,toSid,ped){
+  const p=byId(phraseId); if(!p||p.block!=='AS'){ flash('Переносить можно только фразы актуального состояния'); return false; }
+  const toSp=BANK.sphereIndex[toSid]; if(!toSp){ flash('Нет такой сферы'); return false; }
+  const tk=((BANK.sphere_keys||{})[toSid]||{})[String(ped)]; if(!tk){ flash('Нет ячейки «'+toSid+' · '+ped+'»'); return false; }
+  /* снять старые привязки из as-ключей всех сфер */
+  Object.keys(BANK.sphere_keys||{}).forEach(sid=>{ const ks=BANK.sphere_keys[sid];
+    Object.keys(ks||{}).forEach(pk=>{ const a=(ks[pk].as)||[]; const i=a.indexOf(p.id); if(i>=0) a.splice(i,1); }); });
+  /* применить новый статус и микроблок */
+  p.status=pedToStatus(ped); if(toSp.micro) p.micro=toSp.micro;
+  tk.as=tk.as||[]; if(tk.as.indexOf(p.id)<0) tk.as.push(p.id);
+  persistBank(); SPH_MAPS=null; BANK=indexBank(BANK);
+  flash('Фраза '+p.id+' перенесена: сфера «'+(toSp.name||toSid)+'», оценка '+ped+' ('+p.status+')');
+  return true;
 }
 function rbGoalsFor(sid,ped){ const k=((BANK.sphere_keys||{})[sid]||{})[String(ped)]||{};
   return (k.goal||[]).filter(id=>byId(id)); }
@@ -893,15 +928,26 @@ function rbCardSphere(){
   const ids=rbPhrasesFor(sel,RB.ped);
   out+='<div class="small muted" style="margin-bottom:6px">Фраз на оценке '+RB.ped+': <b>'+ids.length+'</b></div>';
   out+=ids.map(id=>{ const p=byId(id); const on=listHas(S.as,id);
+    /* галочка-связь: какие фразы АС являются основанием для какой цели */
+    const asChk=(S.goals||[]).map(x=>{ const g=byId(x.src); const c=((g&&g.links_goal)||[]).indexOf(id)>=0;
+      return '<label class="aschk'+(c?' on':'')+'" title="основание для цели '+esc(x.src)+'" data-asgoal="'+esc(id)+'|'+esc(x.src)+'"><input type="checkbox"'+(c?' checked':'')+'>цель '+esc(x.src)+'</label>'; }).join('');
     return '<div class="rbrow"><span class="rbid">'+esc(p.id)+'</span><div class="tx">'+esc(p.text)+'</div>'+
-      addBtnV2('as',id,on?'✓ в документе':'+ в документ',sel)+'</div>'; }).join('')||
+      addBtnV2('as',id,on?'✓ в документе':'+ в документ',sel)+'</div>'+
+      (asChk?'<div class="aschks">основа для целей: '+asChk+'</div>':'')+
+      '<div class="rbedit"><details class="rbmv"><summary>✎ править / перенести</summary>'+
+      '<textarea id="rbEditText_'+esc(id)+'" rows="2">'+esc(p.text)+'</textarea>'+
+      '<div class="row" style="margin-top:4px"><div><label class="f">Перенести в сферу</label><select id="rbMoveSp_'+esc(id)+'">'+
+      ((BANK.spheres||[]).filter(sx=>sx.id!=='SPH-SENS').map(sx=>'<option value="'+esc(sx.id)+'"'+(sx.id===sel?' selected':'')+'>'+esc(sx.order+'. '+sx.name)+'</option>').join(''))+
+      '</select></div><div><label class="f">Оценка</label><select id="rbMovePed_'+esc(id)+'">'+
+      [0,1,2,3,4,5,6].map(px=>'<option value="'+px+'"'+(px===RB.ped?' selected':'')+'>'+px+' → '+pedToStatus(px)+'</option>').join('')+
+      '</select></div></div>'+
+      '<button class="b small" data-rbsavetxt="'+esc(id)+'">Сохранить текст</button> '+
+      '<button class="b small gray" data-rbmove="'+esc(id)+'">Перенести в ячейку</button></details></div>'; }).join('')||
     '<p class="small muted">Для этой ячейки фраз пока нет — добавьте свою ниже.</p>';
   out+='<details class="rbadd"'+(ids.length?'':' open')+'><summary>+ Добавить фразу в эту ячейку ('+esc(sel)+', оценка '+RB.ped+')</summary>'+
     '<div class="row"><div style="flex:2"><label class="f">Формулировка</label>'+
     '<input type="text" id="rbAsText" placeholder="Что ребёнок демонстрирует — наблюдаемо, без оценок «необходимо»"></div>'+
-    '<div><label class="f">Статус</label><select id="rbAsStatus">'+
-    ['S3','S2','S1','S0','SN'].map(c=>'<option value="'+c+'"'+(c===['S3','S2','S1','S0','SN'][RB.ped]?' selected':'')+'>'+c+' — '+esc(statusName(c))+'</option>').join('')+
-    '</select></div></div>'+
+    '<div><label class="f">Статус (по оценке '+RB.ped+' автоматически)</label><input type="text" id="rbAsStatus" value="'+pedToStatus(RB.ped)+'" readonly class="ro"></div></div>'+
     '<div class="row"><div><label class="f">Микроблок</label><select id="rbAsMicro">'+
     ((BANK.microblocks||[]).filter(m=>m.block==='AS').map(m=>'<option value="'+esc(m.id)+'"'+(m.id===(sp.micro||'')?' selected':'')+'>'+esc(m.name)+'</option>').join(''))+
     '</select></div><div><label class="f">Подсказка примера</label><input type="text" id="rbAsHint" placeholder="что зафиксировать на занятии"></div></div>'+
@@ -989,9 +1035,22 @@ function bindEditor(){
     RB.sph=a[0]; RB.ped=parseInt(a[1],10); rbSave(); render(); });
   const ba=$('#rbAsAdd'); if(ba) ba.onclick=()=>{
     const t=$('#rbAsText'), st=$('#rbAsStatus'), mi=$('#rbAsMicro'), hn=$('#rbAsHint');
-    const p=rbAddPhrase({block:'AS', micro:mi?mi.value:'', status:st?st.value:'S2',
+    const p=rbAddPhrase({block:'AS', micro:mi?mi.value:'', status:(st&&st.value)||pedToStatus(RB.ped),
       text:t?t.value:'', example_hint:hn?hn.value:''});
     if(p){ rbBindPhraseToCell(RB.sph,RB.ped,p.id); SPH_MAPS=null; render(); } };
+  /* правка формулировки существующей фразы */
+  $$('[data-rbsavetxt]').forEach(b=>b.onclick=()=>{ const id=b.dataset.rbsavetxt;
+    const ta=$('#rbEditText_'+id); if(ta&&rbEditPhraseText(id,ta.value)) render(); });
+  /* перенос фразы в другую ячейку (сфера+оценка) */
+  $$('[data-rbmove]').forEach(b=>b.onclick=()=>{ const id=b.dataset.rbmove;
+    const sp=$('#rbMoveSp_'+id), pd=$('#rbMovePed_'+id);
+    if(sp&&pd&&rbMovePhrase(id,sp.value,parseInt(pd.value,10))){ RB.sph=sp.value; RB.ped=parseInt(pd.value,10); rbSave(); render(); } });
+  /* галочки «основа для целей»: связь фраза АС ↔ цель через links_goal цели */
+  $$('[data-asgoal]').forEach(l=>l.onclick=(e)=>{ e.preventDefault();
+    const a=l.dataset.asgoal.split('|'); const g=byId(a[1]); if(!g) return;
+    g.links_goal=g.links_goal||[]; const i=g.links_goal.indexOf(a[0]);
+    if(i>=0) g.links_goal.splice(i,1); else g.links_goal.push(a[0]);
+    persistBank(); render(); });
   const ga=$('#rbGoalAdd'); if(ga) ga.onclick=()=>{
     const t=$('#rbGoalText'), s=$('#rbGoalSphere');
     const p=rbAddPhrase({block:'GOAL', text:t?t.value:''});
@@ -1767,7 +1826,13 @@ function buildDoc(){
   B.push({title:'Актуальное состояние', paras:asParas});
   const simple=arr=>{ const out=[]; (arr||[]).forEach(it=>{ if(it.text&&it.text.trim()) out.push({text:it.text}); });
     if(!out.length) out.push({text:'[блок не заполнен]'}); return out; };
-  B.push({title:'Цели на период реабилитации:', paras:simple(S.goals)});
+  /* цель, для которой отмечены фразы АС (галочки в редакторе банка), печатается как «учитывая X, работать над Y» */
+  const goalTexts=(arr)=>{ const out=[]; (arr||[]).forEach(it=>{ if(!(it.text&&it.text.trim())) return;
+      const g=byId(it.src); const bases=g?((g.links_goal||[]).map(id=>(byId(id)||{}).text).filter(Boolean)):[];
+      out.push({text: bases.length ? 'Учитывая '+bases.join('; ').replace(/\.?\s*$/,'')+', работать над: '+
+        it.text.replace(/^[А-ЯЁа-яё]/,m=>m.toLowerCase()) : it.text}); });
+    if(!out.length) out.push({text:'[блок не заполнен]'}); return out; };
+  B.push({title:'Цели на период реабилитации:', paras:goalTexts(S.goals)});
   B.push({title:'Приёмы работы:', paras:simple(S.methods)});
   B.push({title:'Результаты:', paras:simple(S.results)});
   const nextParas=simple(S.next);
@@ -2169,6 +2234,7 @@ if (typeof window !== 'undefined') window.V2API = {
   vStage1, vStageObservations, vStage9, renderBank9, bindBank9Table, bindBank9, bank9Rows, bankPhraseCount, blockName, microName,
   vEditor, bindEditor, rbCardSphere, rbCardGoals, rbCardMethods, rbPhrasesFor, rbGoalsFor, rbMethsForGoal,
   rbAddPhrase, rbBindPhraseToCell, rbBindMethodToGoal, rbNextId, rbNextSeriesId, rbSave,
+  rbEditPhraseText, rbMovePhrase, pedToStatus, PED2STATUS,
   get RB(){return RB}, set RB(v){RB=v}, get LS_RB(){return LS_RB},
   statusName, bankNewPhrase, bankRenamePhrase, bankSetField, bankDeletePhrase, mergeBankRows,
   replaceBank, resetBank, importBankFile, exportBankJson, exportBankCsv, bankFileName,

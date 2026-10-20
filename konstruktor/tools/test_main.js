@@ -151,10 +151,33 @@ ok(!!global.document.getElementById('rbAsAdd'), 'форма добавления
 const micro0 = (g.BANK.sphereIndex[g.RB.sph] || {}).micro || 'AS1sens';
 const nid = g.rbNextSeriesId(micro0, 'S2');
 ok(/^AS/.test(nid) && /-S2-\d\d$/.test(nid), 'ID фразы ячейки генерируется автоматически: ' + nid);
-const added = g.rbAddPhrase({block: 'AS', micro: micro0, status: 'S2', text: 'Редактор: тестовая формулировка'});
-ok(!!added && g.BANK.phraseIndex[added.id], 'фраза добавлена через редактор: ' + (added && added.id));
+const added = g.rbAddPhrase({block: 'AS', micro: micro0, status: g.pedToStatus(3), text: 'Редактор: тестовая формулировка'});
+ok(/^AS/.test(added.id) && /-S1-\d\d$/.test(added.id), 'ID и статус новой фразы следуют оценке 3 → S1: ' + added.id);
+/* связь оценки со статусом: 0-1→S0, 2-3→S1, 4→S2, 5-6→S3 */
+ok([0,1].every(p=>g.pedToStatus(p)==='S0') && [2,3].every(p=>g.pedToStatus(p)==='S1')
+   && g.pedToStatus(4)==='S2' && [5,6].every(p=>g.pedToStatus(p)==='S3'),
+   'соответствие оценка→статус: 0-1=S0, 2-3=S1, 4=S2, 5-6=S3');
 ok(g.rbBindPhraseToCell(g.RB.sph, 3, added.id) === true, 'фраза привязана к ключу сферы (оценка 3)');
 ok(((g.BANK.sphere_keys[g.RB.sph][3].as) || []).indexOf(added.id) >= 0, 'фраза попала в as-ключ сферы');
+/* правка формулировки существующей фразы */
+ok(g.rbEditPhraseText(added.id, 'Отредактированная формулировка') === true, 'формулировка фразы редактируется');
+ok(g.BANK.phraseIndex[added.id].text === 'Отредактированная формулировка', 'правка сохранена в банке');
+ok(g.rbEditPhraseText(added.id, '   ') === false, 'пустая формулировка не сохраняется');
+/* перенос фразы между ячейками (сфера+оценка): статус меняется по связи */
+{ const sph2 = sphs[1].id;
+  ok(g.rbMovePhrase(added.id, sph2, 0) === true, 'фраза перенесена в другую сферу, оценка 0');
+  ok(g.BANK.phraseIndex[added.id].status === 'S0', 'при переносе на оценку 0 статус стал S0');
+  ok(((g.BANK.sphere_keys[sph2][0].as)||[]).indexOf(added.id) >= 0, 'фраза появилась в as-ключе новой ячейки');
+  const stillOld = ((g.BANK.sphere_keys[g.RB.sph][3].as)||[]).indexOf(added.id);
+  ok(stillOld < 0, 'старая привязка при переносе снята');
+  g.rbMovePhrase(added.id, g.RB.sph, 3); }   /* вернуть для дальнейших проверок */
+/* галочки «основа для целей»: фраза АС → цель, печать «учитывая X, работать над Y» */
+{ const gidT = (g.rbAddPhrase({block: 'GOAL', text: 'Развивать эмоциональную регуляцию'}) || {}).id;
+  g.toggleIn('goals', gidT, {sphere: g.RB.sph});
+  const gg = g.BANK.phraseIndex[gidT]; gg.links_goal = [added.id];
+  const dtxt = g.docText(g.buildDoc ? g.buildDoc() : undefined);
+  ok(/Учитывая .*работать над/i.test(dtxt), 'в документе цель печатается как «учитывая X, работать над Y»');
+  g.S.goals = []; }
 ok(g.keyFor ? true : true, 'после пересборки индекса фраза доступна подбору');
 const gid = (g.rbAddPhrase({block: 'GOAL', text: 'Редактор: тестовая цель'}) || {}).id;
 ok(/^GL-\d\d$/.test(gid || ''), 'цель получила авто-ID GL-NN: ' + gid);

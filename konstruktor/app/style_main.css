@@ -322,3 +322,12 @@ table.bank9 td label.small{display:flex;gap:5px;align-items:center;white-space:n
 .rbgrp{margin:10px 0;padding:8px 10px;border-left:3px solid var(--acc);background:var(--panel2);border-radius:6px}
 .rbchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .peds label[data-rbped]{cursor:pointer}
+
+/* редактор банка v3.4.0: правка/перенос фраз и галочки «основа для целей» */
+.aschks{margin:2px 0 2px 8px;font-size:.85em;color:var(--mut,#555)}
+.aschk{display:inline-flex;align-items:center;gap:3px;margin-right:8px;cursor:pointer;border:1px solid #ccc;border-radius:10px;padding:1px 7px}
+.aschk.on{background:var(--acc,#2e7d32);color:#fff;border-color:var(--acc,#2e7d32)}
+.rbedit{margin:0 0 8px 8px}
+.rbmv summary{cursor:pointer;font-size:.82em;color:var(--mut,#555)}
+.rbmv textarea{width:100%;box-sizing:border-box;font:inherit;margin-top:4px}
+input.ro{background:#f1f1f1;color:#555}
