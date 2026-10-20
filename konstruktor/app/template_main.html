@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+(function(){try{var o=JSON.parse(localStorage.getItem('iv_constructor_ui')||'null');
+if(o&&o.theme==='dark')document.documentElement.setAttribute('data-theme','dark');
+if(o&&o.fs){var v=[0.85,1,1.15,1.3,1.5][o.fs];if(v)document.documentElement.style.setProperty('--fs',v);}
+}catch(e){}})();
+</script>
+<title>Конструктор ИВ · основная версия</title>
+<!-- Номер версии в заголовке вкладки проставляет скрипт (V2VER), чтобы он никогда не расходился
+     с версией в шапке. Раньше здесь было зашито «v2.2» — устарело и путало при скачивании. -->
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div id="nojs" class="nojs">
+  <b>Страница открыта без выполнения JavaScript — конструктор не запустится.</b>
+  <p>На iPhone/iPad предпросмотр файла (Quick Look) не выполняет скрипты. Откройте конструктор
+  в Safari: на компьютере запустите <span class="kbd">python tools/serve.py</span> и откройте
+  напечатанный адрес, либо используйте Google-версию по ссылке веб-приложения.</p>
+</div>
+<header class="top">
+  <div class="hdrrow">
+    <div>
+      <h1>Конструктор рекомендаций ИВ</h1>
+    <div class="sub">наблюдение → оценка → фразы → заключение · версия <span id="appver">…</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="uictl">
+    <button class="b ghost small" id="btnTheme">Тёмная тема</button>
+    <button class="b ghost small" id="btnNew">Новый документ</button>
+      <button class="b ghost small" id="btnSave">Сохранить проект</button>
+      <button class="b ghost small" id="btnLoad">Загрузить</button>
+    </div>
+  </div>
+  <div class="hdrchips">
+    <span class="pill" id="hdrFio">ФИО не указано</span>
+    <span class="pill" id="hdrDate">дата не указана</span>
+    <span class="pill" id="hdrSpec">специалист не указан</span>
+  </div>
+</header>
+<nav class="steps" id="steps"></nav>
+<main id="main"></main>
+<input type="file" id="fileProject" accept=".json" style="display:none">
+<input type="file" id="fileArch" accept=".json" style="display:none">
+<input type="file" id="fileBank" accept=".json,.csv" style="display:none">
+
+<script id="bank-data" type="application/json">/*__DATA__*/</script>
+<script>
+/*__APP__*/
+</script>
+</body>
+</html>

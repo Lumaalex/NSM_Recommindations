@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const {loadApp} = require('./_harness.js');
 const ROOT = path.resolve(__dirname, '..');
-const g = loadApp(path.join(ROOT, 'fork_v2', 'Конструктор_ИВ_версия2.html'), {epilogue: false});
+const g = loadApp(path.join(ROOT, 'fork_v2', 'Конструктор_ИВ_версия2.html'));
 
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  OK   ' : '  FAIL ') + m); if (!c) fails++; };
