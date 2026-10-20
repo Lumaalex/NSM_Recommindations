@@ -727,6 +727,7 @@ const STAGES=[
   {n:7, name:'7. Рекомендации'},
   {n:8, name:'8. Наблюдения с занятий'},
   {n:9, name:'9. Итоговый документ'},
+  {n:10, name:'10. Банк фраз'},   // скрытый шаг: открывается кнопкой «Банк фраз» на шаге 9
 ];
 function stageDone(n){
   if(n===1) return (BANK.spheres||[]).some(sp=>sp.id!=='SPH-SENS'&&(()=>{const x=scoreOf(S.scores,sp.id);return typeof x.ped==='number'||x.signal;})());
@@ -751,6 +752,7 @@ function render(){
   if(!STAGES.some(st=>st.n===S.stage)) S.stage=1;
   const nav=$('#steps'); nav.innerHTML='';
   STAGES.forEach(st=>{
+    if(st.n===10) return;   // «Банк фраз» — скрытый шаг, открывается кнопкой на шаге 9
     const b=document.createElement('button');
     b.textContent=st.name; b.className=(S.stage===st.n?'on ':'')+(stageDone(st.n)?'done':'');
     b.onclick=()=>{ S.stage=st.n; save(); render(); window.scrollTo(0,0); };
@@ -795,9 +797,9 @@ function vStage9(){
     +esc(m.name)+' · '+esc(m.id)+'</option>').join('');
   const stats=(BANK.statuses||[]).map(s=>'<option value="'+esc(s.code)+'"'+(BK9.status===s.code?' selected':'')+'>'
     +esc(s.code)+' — '+esc(s.name)+'</option>').join('');
-  return `<div class="card">
+  return `<div class="card"><div class="statusbar"><button class="b gray small" data-goto="9">← К итоговому документу</button></div></div>`+`<div class="card">
     <h2>Банк фраз</h2>
-    <p class="hint">Мастер-база — файл <span class="kbd">Банк_фраз.xlsx</span> (банк общий с классической версией).
+    <p class="hint">Мастер-копия банка — файл <span class="kbd">data/phrases_main.json</span> (версия данных ${esc((BANK.meta||{}).version||'?')}).
     Фразы можно править и добавлять прямо здесь: изменения хранятся в этом браузере и сразу
     попадают в подбор фраз на всех шагах. Чтобы перенести правки на другой компьютер —
     «Экспорт JSON» (или «Экспорт CSV» для Excel) и «Импорт» там. Код фразы: блок · микротема ·
@@ -833,9 +835,11 @@ function vStage9(){
       ${(BANK.service_phrases||[]).map(s=>`<tr><td>${esc(s.id)}</td><td>${esc(s.situation||'')}</td>
         <td>${esc(s.text||'')}</td></tr>`).join('')}
     </table></div>
-    <div class="notice info" style="margin-top:8px">Правки банка на этом шаге не меняют мастер-базу
-    <span class="kbd">Банк_фраз.xlsx</span>: они живут в этом браузере и в выгруженном JSON/CSV.
-    Чтобы правка стала общей для всех — перенесите её в таблицу и пересоберите конструктор.</div>
+    <div class="notice info" style="margin-top:8px">Правки банка на этом шаге не меняют мастер-копию
+    <span class="kbd">data/phrases_main.json</span>: они живут в этом браузере и в выгруженном JSON/CSV.
+    Чтобы правка стала общей для всех — «Экспорт JSON» из этого шага, положить файл в
+    <span class="kbd">data/phrases_main.json</span> и пересобрать конструктор
+    (<span class="kbd">python tools/build_main.py</span>).</div>
   </div>`;
 }
 function renderBank9(){
@@ -1609,6 +1613,7 @@ function vStage7(){
   let html=`<div class="toolbar"><button class="b" id="btnDocx">Скачать .docx</button>
     <button class="b ghost" id="btnCopy">Копировать текст</button>
     <button class="b ghost" id="btnPrint">Печать / PDF</button>
+    <button class="b gray small" id="btnOpenBank9">Банк фраз</button>
     <span class="spacer" style="flex:1"></span>
     <span class="small muted filename">${esc(fileName())}</span></div>`;
   html+='<div id="docwrap">'+docHtml(d)+'</div>';
@@ -1745,7 +1750,8 @@ function bind(){
     if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(()=>flash('Текст скопирован'));
     else flash('Скопируйте вручную: '+t.slice(0,40)+'…'); };
   const bp=$('#btnPrint'); if(bp) bp.onclick=()=>window.print();
-  if(S.stage===9) bindBank9();          // шаг «Банк фраз» — таблица и её кнопки
+  const bb=$('#btnOpenBank9'); if(bb) bb.onclick=()=>{ S.stage=10; save(); render(); window.scrollTo(0,0); };
+  if(S.stage===10) bindBank9();         // скрытый шаг «Банк фраз» — таблица и её кнопки
 }
 function exportDocx(){
   const d=buildDoc();
@@ -1783,7 +1789,7 @@ $('#fileArch').onchange=e=>{ const f=e.target.files[0]; if(!f) return;
 /* Кнопка «Банк фраз» в шапке ведёт на шаг полного банка с правками.
    Окно подбора с фильтром по блоку/сфере/коду осталось на кнопках «+ другие фразы» внутри шагов. */
 $('#fileBank').onchange=e=>{ const f=e.target.files[0]; if(f) importBankFile(f); e.target.value=''; };
-$('#btnNew').onclick=()=>{ if(confirm('Начать новый документ? Текущий черновик версии 2 будет очищен.')){
+$('#btnNew').onclick=()=>{ if(confirm('Начать новый документ? Текущий черновик основной версии будет очищен.')){
   S=blank(); S.header.fill_date=todayStr(); save(); render(); flash('Новый документ'); } };
 const themeBtn=$('#btnTheme'); if(themeBtn) themeBtn.onclick=()=>{
   UI.theme=UI.theme==='dark'?'light':'dark'; saveUI(); applyUI();
