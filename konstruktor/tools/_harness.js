@@ -67,6 +67,7 @@ function loadApp(htmlPath, opts) {
   vm.runInContext(code, sandbox, {filename: 'app.js'});
   const app = sandbox.V2API;
   if (!app) throw new Error('приложение не экспортировало window.V2API');
+  app.__localStorageKeys = () => Object.keys(store);
   return app;
 }
 
