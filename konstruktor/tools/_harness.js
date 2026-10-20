@@ -1,5 +1,5 @@
-// Общая обвязка: запускает клиентский код конструктора вне браузера (Node).
-// Используется в tools/test_app.js и tools/make_example.js
+// Общая обвязка: запускает клиентский код конструктора V2 вне браузера (Node).
+// Используется в tools/test_v2.js. Клиент сам экспортирует API в window.V2API.
 const fs = require('fs');
 const vm = require('vm');
 
@@ -23,26 +23,6 @@ function makeEl(tag) {
   });
 }
 
-const EPILOGUE = `
-;globalThis.__app = {
-  get BANK(){return BANK}, set BANK(v){BANK=v},
-  get S(){return S}, set S(v){S=v},
-  get TAB(){return TAB}, set TAB(v){TAB=v},
-  get UI(){return UI}, set UI(v){UI=v},
-  get BANK_DEFAULT(){return BANK_DEFAULT},
-  render, bind, ensureMicro, adapt, hasPhrase, addMicroItem, addItem, addRecItem, byId,
-  buildDoc, docPlainText, runChecklist, buildDocumentXml, zipStore, toCsv, parseCsv, fileName,
-  isAdded, removeFrom, targetName, addBtn, migrateDoc, normalizeState,
-  blockName, microName, v1PhraseCount, v2OnlyMicroNames, syncHdrChips,
-  countSpheres, sphereAnswerOpts, poolAsFor, sphereAsPool, sphSugg, keySuggestions,
-  sensAutoTextFor, sensApply, sensDrop, sensFilled, sensTotal, sensBlocksOf,
-  linkedSuggestionsCard, linkedStrip,
-  get SPHERE_ANS(){return SPHERE_ANS}, get PED_OF(){return PED_OF}, get CORE2SPH(){return CORE2SPH},
-  get CT_XML(){return CT_XML}, get RELS_XML(){return RELS_XML}, get STYLES_XML(){return STYLES_XML},
-  get NUM_XML(){return NUM_XML}, get DOC_RELS_XML(){return DOC_RELS_XML},
-  vHeader, vSurvey, vAS, vGoals, vResults, vRecs, vDoc, vBank, vHelp,
-};`;
-
 function loadApp(htmlPath, opts) {
   opts = opts || {};
   const html = fs.readFileSync(htmlPath, 'utf8');
@@ -54,7 +34,7 @@ function loadApp(htmlPath, opts) {
   const re = /<script(?![^>]*type="application\/json")[^>]*>([\s\S]*?)<\/script>/g;
   let m;
   while ((m = re.exec(html)) !== null) scripts.push(m[1]);
-  const code = scripts.join('\n;\n') + (opts.epilogue === false ? '' : EPILOGUE);
+  const code = scripts.join('\n;\n');
 
   const store = {};
   const sandbox = {
@@ -70,7 +50,6 @@ function loadApp(htmlPath, opts) {
                    removeItem: k => { delete store[k]; }},
     setTimeout: () => 0, clearTimeout: () => {},
     alert: () => {}, confirm: () => true, prompt: () => null,
-    window: {scrollTo: () => {}, addEventListener: () => {}, print: () => {}},
   };
   sandbox.document = {
     documentElement: makeEl('html'),
@@ -81,26 +60,20 @@ function loadApp(htmlPath, opts) {
     body: makeEl('body'),
     addEventListener: () => {},
   };
-  sandbox.globalThis = sandbox;
+  sandbox.window = sandbox;
+  sandbox.scrollTo = () => {};
+  sandbox.addEventListener = () => {};
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, {filename: 'app.js'});
-  const app = sandbox.__app || (sandbox.window && (sandbox.window.V2API || sandbox.window.__app));
-  if (!app) throw new Error('приложение не инициализировалось');
+  const app = sandbox.V2API;
+  if (!app) throw new Error('приложение не экспортировало window.V2API');
   return app;
 }
 
-/** Собирает .docx тем же кодом, которым это делает браузер. */
+/** Собирает .docx тем же кодом, которым это делает браузер (через g.docx()). */
 function docxBytes(g) {
   const d = g.buildDoc();
-  const zip = g.zipStore([
-    {name: '[Content_Types].xml', data: g.CT_XML},
-    {name: '_rels/.rels', data: g.RELS_XML},
-    {name: 'word/document.xml', data: g.buildDocumentXml(d)},
-    {name: 'word/styles.xml', data: g.STYLES_XML},
-    {name: 'word/numbering.xml', data: g.NUM_XML},
-    {name: 'word/_rels/document.xml.rels', data: g.DOC_RELS_XML},
-  ]);
-  return {bytes: Buffer.from(zip), doc: d, name: g.fileName(d)};
+  return {bytes: Buffer.from(g.docx()), doc: d, name: g.fileName(d)};
 }
 
 module.exports = {loadApp, docxBytes, makeEl};
