@@ -1,0 +1,9 @@
+277dcc7b9e4cf4d971f0231e85a29ac0  data/phrases.json
+1f54716fd77d340f6a548d9220fc8e54  Банк_фраз.xlsx
+0fd4608293e462e15ce5e3b476d91237  fork_v2/Конструктор_ИВ_версия2.html
+0c276bb340bcd14b048e88f78bbaad7f  Конструктор_рекомендаций.html
+47a70bc00e06d9ce6cf31a9a703a1b3a  google/Index.html
+745ad324b5e46b791091f57719c072dc  Пример_заключения_ИВ.docx
+313c993b56ed7b73be7c3a562e665db8  Шаблон_заключения_ИВ.docx
+a9c3552392c05d72129202a47ef5292a  Памятка_специалиста.docx
+1ad9bc5a60e1a1413a1a7e4f5a92bd7d  Пример_проекта.json
