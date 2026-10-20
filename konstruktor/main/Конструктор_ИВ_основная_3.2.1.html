@@ -346,6 +346,7 @@ table.bank9 td label.small{display:flex;gap:5px;align-items:center;white-space:n
     <button class="b ghost small" id="btnNew">Новый документ</button>
       <button class="b ghost small" id="btnSave">Сохранить проект</button>
       <button class="b ghost small" id="btnLoad">Загрузить</button>
+      <button class="b ghost small" id="btnBankTop">Банк фраз</button>
     </div>
   </div>
   <div class="hdrchips">
@@ -372,7 +373,8 @@ table.bank9 td label.small{display:flex;gap:5px;align-items:center;white-space:n
    оценке «не проявляется»; удалено поле example; добавлен шаг 8 «Наблюдения
    с занятий»; банк фраз перенесён внутрь последнего шага.
    ========================================================================== */
-const V2VER = '3.2.0';   // оценки сфер и обязательное пояснение для оценки «не проявляется» в документе
+const V2VER = '3.2.1';   // кнопка «Банк фраз» перенесена в шапку (доступна с любого шага)
+let BANK_RETURN_STAGE = 9;   // шаг, на который возвращаемся из банка фраз
 /* Формат файлов проекта основной версии — СВОЙ, не совместим с проектами старого форка V2
    (несовместимы шкалы сфер 0…6 и 5…1): чужие файлы отвергаются при загрузке. */
 const PROJECT_TAG = 'iv-constructor-main-3_2';
@@ -797,7 +799,7 @@ function vStage9(){
     +esc(m.name)+' · '+esc(m.id)+'</option>').join('');
   const stats=(BANK.statuses||[]).map(s=>'<option value="'+esc(s.code)+'"'+(BK9.status===s.code?' selected':'')+'>'
     +esc(s.code)+' — '+esc(s.name)+'</option>').join('');
-  return `<div class="card"><div class="statusbar"><button class="b gray small" data-goto="9">← К итоговому документу</button></div></div>`+`<div class="card">
+  return `<div class="card"><div class="statusbar"><button class="b gray small" data-goto="${BANK_RETURN_STAGE}">← Вернуться к работе</button></div></div>`+`<div class="card">
     <h2>Банк фраз</h2>
     <p class="hint">Мастер-копия банка — файл <span class="kbd">data/phrases_main.json</span> (версия данных ${esc((BANK.meta||{}).version||'?')}).
     Фразы можно править и добавлять прямо здесь: изменения хранятся в этом браузере и сразу
@@ -1750,7 +1752,7 @@ function bind(){
     if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(()=>flash('Текст скопирован'));
     else flash('Скопируйте вручную: '+t.slice(0,40)+'…'); };
   const bp=$('#btnPrint'); if(bp) bp.onclick=()=>window.print();
-  const bb=$('#btnOpenBank9'); if(bb) bb.onclick=()=>{ S.stage=10; save(); render(); window.scrollTo(0,0); };
+  const bb=$('#btnOpenBank9'); if(bb) bb.onclick=()=>{ BANK_RETURN_STAGE=9; S.stage=10; save(); render(); window.scrollTo(0,0); };
   if(S.stage===10) bindBank9();         // скрытый шаг «Банк фраз» — таблица и её кнопки
 }
 function exportDocx(){
@@ -1793,6 +1795,11 @@ $('#btnNew').onclick=()=>{ if(confirm('Начать новый документ?
   S=blank(); S.header.fill_date=todayStr(); save(); render(); flash('Новый документ'); } };
 const themeBtn=$('#btnTheme'); if(themeBtn) themeBtn.onclick=()=>{
   UI.theme=UI.theme==='dark'?'light':'dark'; saveUI(); applyUI();
+};
+/* «Банк фраз» в шапке: доступен с любого шага; возврат — на тот шаг, откуда открыли */
+const bankTopBtn=$('#btnBankTop'); if(bankTopBtn) bankTopBtn.onclick=()=>{
+  if(S.stage!==10) BANK_RETURN_STAGE=S.stage;
+  S.stage=10; save(); render(); window.scrollTo(0,0);
 };
 
 /* Общая библиотека сборки .docx (ZIP + WordprocessingML).

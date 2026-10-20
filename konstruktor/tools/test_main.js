@@ -1,9 +1,13 @@
-// Тесты ОСНОВНОЙ версии конструктора (мейн, v3.2.0). Запуск: node tools/test_main.js
+// Тесты ОСНОВНОЙ версии конструктора (мейн, текущей версии). Запуск: node tools/test_main.js
 const fs = require('fs');
 const path = require('path');
 const {loadApp} = require('./_harness.js');
 const ROOT = path.resolve(__dirname, '..');
-const g = loadApp(path.join(ROOT, 'main', 'Конструктор_ИВ_основная_3.2.0.html'));
+// канонический файл мейна ищем по маске — версия в имени меняется при каждом релизе
+const mainFiles = fs.readdirSync(path.join(ROOT, 'main'))
+  .filter(n => n.startsWith('Конструктор_ИВ_основная_') && n.endsWith('.html')).sort();
+if (!mainFiles.length) { console.error('! в main/ нет собранного файла — сначала python tools/build_main.py'); process.exit(1); }
+const g = loadApp(path.join(ROOT, 'main', mainFiles[mainFiles.length - 1]));
 
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  OK   ' : '  FAIL ') + m); if (!c) fails++; };
@@ -12,7 +16,7 @@ const noThrow = (n, f) => { try { const r = f(); ok(true, n); return r; }
 
 console.log('\n== 1. Данные основной версии ==');
 ok(g.BANK.meta.version === '1.3.0', 'версия данных банка: ' + g.BANK.meta.version);
-ok(g.BANK.spheres.length === 7, 'сфер оценки: ' + g.BANK.spheres.length + ' (в 3.2.0 шкала сфер — 7)');
+ok(g.BANK.spheres.length === 7, 'сфер оценки: ' + g.BANK.spheres.length + ' (шкала сфер main — 7)');
 ok(g.BANK.ped_scale.map(x => x.ped).join(',') === '0,1,2,3,4,5,6', 'шкала сфер 0…6: ' + g.BANK.ped_scale.map(x => x.ped).join(','));
 ok(g.BANK.phrases.length === 201 && g.bankPhraseCount() === 197,
    'всего фраз в файле: ' + g.BANK.phrases.length + ', активных в подборе: ' + g.bankPhraseCount() + ' (4 деактивированы)');
@@ -25,7 +29,7 @@ ok(missKey.length === 0, 'у каждой сферы есть ключ на 0…
   (missKey.length ? ' → нет у: ' + missKey.map(s => s.id).join(',') : ''));
 ok(g.STAGES.length === 10 && g.STAGES.filter(st => st.n !== 10).length === 9,
    'шагов в навигации: 9 + скрытый шаг «Банк фраз» (STAGES.length = ' + g.STAGES.length + ')');
-ok(g.STAGES[7].name.indexOf('Наблюдения') >= 0, 'шаг 8 — «' + g.STAGES[7].name + '» (новое в 3.2.0)');
+ok(g.STAGES[7].name.indexOf('Наблюдения') >= 0, 'шаг 8 — «' + g.STAGES[7].name + '» (основная версия)');
 ok(g.STAGES[8].name.indexOf('Итоговый документ') >= 0, 'шаг 9 — «' + g.STAGES[8].name + '» (банк перенесён внутрь)');
 
 console.log('\n== 2. Оценка сфер и выпадение фраз ==');
@@ -93,6 +97,19 @@ g.S.stage = 10; noThrow('рендер скрытого шага «Банк фр�
 g.S.stage = 9; g.render();
 const navBtns = (g.STAGES || []).filter(st => st.n !== 10).length;
 ok(navBtns === 9, 'в навигации 9 кнопок, шаг «Банк фраз» скрыт (STAGES c фильтром): ' + navBtns);
+// кнопка «Банк фраз» в шапке: есть в собранном HTML и доступна с любого шага
+const mainHtml = fs.readFileSync(path.join(ROOT, 'main', mainFiles[mainFiles.length - 1]), 'utf-8');
+ok(mainHtml.indexOf('id="btnBankTop"') >= 0, 'в собранном HTML есть кнопка «Банк фраз» в шапке (btnBankTop)');
+g.S.stage = 3; g.render();
+const topBtn = global.document.getElementById('btnBankTop');
+ok(!!topBtn, 'кнопка «Банк фраз» присутствует в шапке на шаге 3');
+if (topBtn) {
+  topBtn.click();
+  ok(g.S.stage === 10, 'клик по кнопке в шапке открывает банк фраз с любого шага');
+  const back = global.document.querySelector('[data-goto]');
+  ok(back && back.getAttribute('data-goto') === '3', 'кнопка возврата ведёт на шаг, с которого открыли банк');
+}
+g.S.stage = 9; g.render();
 
 console.log('\n== 7. Банк фраз: правки, localStorage, CSV, сброс ==');
 g.resetBank();
@@ -132,5 +149,5 @@ ok(!has('iv_constructor_bank_v2'), 'правки банка НЕ пишутся 
 ok(g.LS_BANK === 'iv_constructor_bank_main_3_2' && g.LS_DOC === 'iv_constructor_main_3_2_doc',
    'ключи банка и черновика изолированы от старого V2: ' + g.LS_BANK + ' / ' + g.LS_DOC);
 
-console.log('\n' + (fails === 0 ? '✅ ВСЕ ПРОВЕРКИ ОСНОВНОЙ ВЕРСИИ (3.2.0) ПРОЙДЕНЫ' : '❌ ПРОВАЛОВ: ' + fails));
+console.log('\n' + (fails === 0 ? '✅ ВСЕ ПРОВЕРКИ ОСНОВНОЙ ВЕРСИИ ПРОЙДЕНЫ' : '❌ ПРОВАЛОВ: ' + fails));
 process.exit(fails === 0 ? 0 : 1);

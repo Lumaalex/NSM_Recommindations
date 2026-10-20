@@ -33,11 +33,21 @@ ROOT = os.path.dirname(HERE)
 REL = os.path.join(ROOT, 'release')
 
 # исходник -> (префикс имени копии, регулярка версии, описание)
+# имя канонического файла основной версии содержит версию — находим его по маске,
+# чтобы при повышении V2VER не править этот скрипт
+def _find_main_src():
+    main_dir = os.path.join(ROOT, 'main')
+    cands = sorted(n for n in os.listdir(main_dir)
+                   if n.startswith('Конструктор_ИВ_основная_') and n.endswith('.html')) \
+        if os.path.isdir(main_dir) else []
+    return os.path.join(main_dir, cands[-1]) if cands else os.path.join(main_dir, 'Конструктор_ИВ_основная_.html')
+
+
 SOURCES = [
-    (os.path.join(ROOT, 'main', 'Конструктор_ИВ_основная_3.2.0.html'),
+    (_find_main_src(),
      'Конструктор_ИВ_основной', r"V2VER\s*=\s*'([0-9.]+)'",
      'ОСНОВНАЯ версия (мейн, последняя рабочая): оценки сфер по шкале 0…6, шаг «Наблюдения с занятий», '
-     'банк фраз на скрытом шаге 10 (кнопка «Банк фраз» на шаге 9); собирается tools/build_main.py из app/template_main.html + '
+     'банк фраз на скрытом шаге 10 (кнопка «Банк фраз» в шапке, доступен с любого шага); собирается tools/build_main.py из app/template_main.html + '
      'data/phrases_main.json'),
     (os.path.join(ROOT, 'fork_v2', 'Конструктор_ИВ_версия2.html'),
      'Конструктор_ИВ_V2_от_общего_к_частному', r"V2VER\s*=\s*'([0-9.]+)'",
