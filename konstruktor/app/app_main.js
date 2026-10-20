@@ -8,7 +8,7 @@
    оценке «не проявляется»; удалено поле example; добавлен шаг 8 «Наблюдения
    с занятий»; банк фраз перенесён внутрь последнего шага.
    ========================================================================== */
-const V2VER = '3.2.1';   // кнопка «Банк фраз» перенесена в шапку (доступна с любого шага)
+const V2VER = '3.3.0';   // режим «Редактор банка»: банк фраз как отдельный инструмент из трёх секций
 let BANK_RETURN_STAGE = 9;   // шаг, на который возвращаемся из банка фраз
 /* Формат файлов проекта основной версии — СВОЙ, не совместим с проектами старого форка V2
    (несовместимы шкалы сфер 0…6 и 5…1): чужие файлы отвергаются при загрузке. */
@@ -364,7 +364,8 @@ const STAGES=[
   {n:7, name:'7. Рекомендации'},
   {n:8, name:'8. Наблюдения с занятий'},
   {n:9, name:'9. Итоговый документ'},
-  {n:10, name:'10. Банк фраз'},   // скрытый шаг: открывается кнопкой «Банк фраз» на шаге 9
+  {n:10, name:'10. Редактор банка'},  // скрытый шаг: открывается кнопкой «Банк фраз» в шапке
+  {n:11, name:'11. Таблица фраз'},     // скрытый шаг: табличный вид с прямой правкой (кнопка в редакторе)
 ];
 function stageDone(n){
   if(n===1) return (BANK.spheres||[]).some(sp=>sp.id!=='SPH-SENS'&&(()=>{const x=scoreOf(S.scores,sp.id);return typeof x.ped==='number'||x.signal;})());
@@ -389,13 +390,13 @@ function render(){
   if(!STAGES.some(st=>st.n===S.stage)) S.stage=1;
   const nav=$('#steps'); nav.innerHTML='';
   STAGES.forEach(st=>{
-    if(st.n===10) return;   // «Банк фраз» — скрытый шаг, открывается кнопкой на шаге 9
+    if(st.n>=10) return;   // редактор банка и таблица — скрытые шаги, открываются кнопкой в шапке
     const b=document.createElement('button');
     b.textContent=st.name; b.className=(S.stage===st.n?'on ':'')+(stageDone(st.n)?'done':'');
     b.onclick=()=>{ S.stage=st.n; save(); render(); window.scrollTo(0,0); };
     nav.appendChild(b);
   });
-  const fns={1:vStage1,2:vSensStage,3:vStage2,4:vStage3,5:vStage4,6:vStage5,7:vStage6,8:vStageObservations,9:vStage7,10:vStage9};
+  const fns={1:vStage1,2:vSensStage,3:vStage2,4:vStage3,5:vStage4,6:vStage5,7:vStage6,8:vStageObservations,9:vStage7,10:vEditor,11:vStage9};
   $('#main').innerHTML=(fns[S.stage]||vStage1)();
   const hf=$('#hdrFio'); if(hf) hf.textContent=(S.header.fio||'').trim()||'ФИО не указано';
   const hd=$('#hdrDate'); if(hd) hd.textContent='заполнено: '+((S.header.fill_date||'').trim()||'—');
@@ -427,6 +428,220 @@ function bank9Rows(){
     &&(!BK9.status||String(p.status||'').split(',').map(x=>x.trim()).indexOf(BK9.status)>=0)
     &&(!q||((p.text||'')+' '+(p.id||'')+' '+(p.tags||'')).toLowerCase().indexOf(q)>=0));
 }
+/* ============================================================ РЕДАКТОР БАНКА (режим, v3.3.0)
+   Кардинально новый способ работы с банком фраз — отдельный режим вместо таблицы.
+   Три секции-конструктора:
+     1. Актуальное состояние: сфера → оценка (0…6) → все фразы этой ячейки + добавление своих;
+     2. Конструктор целей: выбранные цели + связанные приёмы/рекомендации + новые цели;
+     3. Приёмы: по каждой цели — её приёмы + добавление новых приёмов.
+   Новые фразы получают ID автоматически (следующий свободный номер GL-/MT- или серии
+   микротема-статус-NN) и сразу попадают в подбор конструктора. Готовый банк выгружается
+   кнопкой «Экспорт JSON» — тот же формат, что принимает tools/build_main.py.                */
+let RB={open:false, sph:'', ped:null, goalSel:{}, methSel:{}};
+try{ const r=localStorage.getItem('iv_constructor_main_3_2_rb'); if(r){ const d=JSON.parse(r);
+  if(d&&typeof d==='object') RB=Object.assign(RB,d); } }catch(e){}
+const LS_RB='iv_constructor_main_3_2_rb';
+function rbSave(){ try{ localStorage.setItem(LS_RB, JSON.stringify(RB)); }catch(e){} }
+function rbSphereMicros(sid){ const sp=BANK.sphereIndex[sid]||{}; return sp.micro? [sp.micro] : []; }
+function rbPhrasesFor(sid,ped){
+  const k=((BANK.sphere_keys||{})[sid]||{})[String(ped)]||{};
+  const ids=(k.as||[]).filter(id=>byId(id));
+  const micros=rbSphereMicros(sid);
+  const want=['S3','S2','S1','S0','SN'][ped];   // соответствие оценки статусу фразы
+  (BANK.phrases||[]).forEach(p=>{ if(p.active!==false && p.block==='AS' && micros.indexOf(p.micro)>=0
+    && String(p.status||'').split(',')[0]===want && ids.indexOf(p.id)<0) ids.push(p.id); });
+  return ids;
+}
+function rbGoalsFor(sid,ped){ const k=((BANK.sphere_keys||{})[sid]||{})[String(ped)]||{};
+  return (k.goal||[]).filter(id=>byId(id)); }
+function rbMethsForGoal(gid){ const p=byId(gid); if(!p) return [];
+  const linked=(p.links_meth||[]).filter(id=>byId(id));
+  const sid=sphereOfId('goal',gid)||''; const sc=S.scores[sid]||{};
+  const k=((BANK.sphere_keys||{})[sid]||{})[typeof sc.ped==='number'?sc.ped:'']||{};
+  const extra=(k.meth||[]).filter(id=>byId(id)&&linked.indexOf(id)<0);
+  return {linked:linked, extra:extra}; }
+function rbRecsForGoal(gid){ const p=byId(gid); if(!p) return [];
+  return (p.links_rec||[]).filter(id=>byId(id)); }
+function rbNextId(prefix){ let n=1,id; while(byId(id=prefix+'-'+String(n).padStart(2,'0'))) n++; return id; }
+function rbNextSeriesId(micro,status){
+  const pre=(micro||'AS1sens')+'-'+status+'-'; let n=1,id;
+  while(byId(id=pre+String(n).padStart(2,'0'))) n++; return id; }
+/* создание фразы через редактор (без prompt) */
+function rbAddPhrase(opts){
+  const o=opts||{};
+  if(!String(o.text||'').trim()){ flash('Заполните формулировку фразы'); return null; }
+  let id=o.id;
+  if(o.block==='GOAL'){ id=id||rbNextId('GL'); }
+  else if(o.block==='METH'){ id=id||rbNextId('MT'); }
+  else { id=id||rbNextSeriesId(o.micro,o.status||'S2'); }
+  if(byId(id)){ alert('Такой ID уже есть: '+id); return null; }
+  const p={id:id, dir:'IV', block:o.block||'AS', micro:o.micro||'', ability:o.ability||'',
+    status:o.status||(o.block==='GOAL'?'S2,S1,S0':o.block==='METH'?'S3,S2,S1,S0,SN':'S2'),
+    text:String(o.text).trim(), source:'пользователь', needs_example:o.needs_example!==false,
+    example_hint:o.example_hint||'', links_goal:o.links_goal||[], links_meth:o.links_meth||[],
+    links_rec:o.links_rec||[], tags:o.tags||'', active:true};
+  BANK.phrases.push(p); SPH_MAPS=null; BANK=indexBank(BANK); persistBank();
+  flash('Фраза добавлена: '+p.id); return p;
+}
+/* привязка фразы к ячейке ключа сферы (as/goal/meth/rec — по блоку фразы) */
+function rbBindPhraseToCell(sid,ped,phraseId){
+  const keys=BANK.sphere_keys&&BANK.sphere_keys[sid]; if(!keys) return false;
+  const k=keys[String(ped)]; if(!k) return false;
+  const p=byId(phraseId); if(!p) return false;
+  const bucket=p.block==='GOAL'?'goal':p.block==='METH'?'meth':p.block==='REC'?'rec':'as';
+  k[bucket]=k[bucket]||[]; if(k[bucket].indexOf(phraseId)>=0) return false;
+  k[bucket].push(phraseId); persistBank(); flash('Фраза '+phraseId+' привязана к сфере («'+ped+'»)'); return true;
+}
+function rbBindMethodToGoal(goalId,methId){
+  const g=byId(goalId); if(!g) return false;
+  g.links_meth=g.links_meth||[]; if(g.links_meth.indexOf(methId)>=0) return false;
+  g.links_meth.push(methId); persistBank(); flash('Приём '+methId+' привязан к цели '+goalId); return true;
+}
+/* ------- карточки секций ------- */
+function rbCardSphere(){
+  const sphs=(BANK.spheres||[]).filter(sp=>sp.id!=='SPH-SENS');
+  const sel=RB.sph&&BANK.sphereIndex[RB.sph]? RB.sph : '';
+  const opts='<option value="">— выберите сферу —</option>'+sphs.map(sp=>
+    '<option value="'+esc(sp.id)+'"'+(sp.id===sel?' selected':'')+'>'+esc(sp.order+'. '+sp.name)+'</option>').join('');
+  let out='<div class="card"><h2>1 · Актуальное состояние</h2><p class="hint">'+
+    'Выберите сферу и оценку (0…6) — редактор покажет все фразы этой ячейки: те, что привязаны в ключе сферы, '+
+    'и подходящие по статусу из микроблока сферы. Здесь же можно добавить свои фразы — ID присваивается автоматически.</p>'+
+    '<div class="filters"><div><label class="f">Сфера</label><select id="rbSphere">'+opts+'</select></div></div>';
+  if(!sel) return out+'</div>';
+  const sp=BANK.sphereIndex[sel];
+  const peds=[0,1,2,3,4,5,6].map(p=>{ const i=pedInfo(p);
+    return '<label class="'+(RB.ped===p?'on':'')+'" data-rbped="'+esc(sel)+'|'+p+'"><b>'+p+'</b>'+esc(i?i.name:'')+'</label>'; }).join('');
+  out+='<div class="peds" style="margin:8px 0">'+peds+'</div>';
+  if(typeof RB.ped!=='number') return out+'<p class="small muted">Выберите оценку сферы.</p></div>';
+  const ids=rbPhrasesFor(sel,RB.ped);
+  out+='<div class="small muted" style="margin-bottom:6px">Фраз на оценке '+RB.ped+': <b>'+ids.length+'</b></div>';
+  out+=ids.map(id=>{ const p=byId(id); const on=listHas(S.as,id);
+    return '<div class="rbrow"><span class="rbid">'+esc(p.id)+'</span><div class="tx">'+esc(p.text)+'</div>'+
+      addBtnV2('as',id,on?'✓ в документе':'+ в документ',sel)+'</div>'; }).join('')||
+    '<p class="small muted">Для этой ячейки фраз пока нет — добавьте свою ниже.</p>';
+  out+='<details class="rbadd"'+(ids.length?'':' open')+'><summary>+ Добавить фразу в эту ячейку ('+esc(sel)+', оценка '+RB.ped+')</summary>'+
+    '<div class="row"><div style="flex:2"><label class="f">Формулировка</label>'+
+    '<input type="text" id="rbAsText" placeholder="Что ребёнок демонстрирует — наблюдаемо, без оценок «необходимо»"></div>'+
+    '<div><label class="f">Статус</label><select id="rbAsStatus">'+
+    ['S3','S2','S1','S0','SN'].map(c=>'<option value="'+c+'"'+(c===['S3','S2','S1','S0','SN'][RB.ped]?' selected':'')+'>'+c+' — '+esc(statusName(c))+'</option>').join('')+
+    '</select></div></div>'+
+    '<div class="row"><div><label class="f">Микроблок</label><select id="rbAsMicro">'+
+    ((BANK.microblocks||[]).filter(m=>m.block==='AS').map(m=>'<option value="'+esc(m.id)+'"'+(m.id===(sp.micro||'')?' selected':'')+'>'+esc(m.name)+'</option>').join(''))+
+    '</select></div><div><label class="f">Подсказка примера</label><input type="text" id="rbAsHint" placeholder="что зафиксировать на занятии"></div></div>'+
+    '<button class="b small" id="rbAsAdd" style="margin-top:6px">Добавить фразу</button>'+
+    '<div class="small muted" style="margin-top:4px">ID получит вид '+esc(sp.micro||'AS1sens')+'-S2-NN (следующий свободный номер серии) и фраза сразу попадёт в подбор на шаге оценки.</div>'+
+    '</details>';
+  return out+'</div>';
+}
+function rbCardGoals(){
+  const sphs=(BANK.spheres||[]).filter(sp=>sp.id!=='SPH-SENS');
+  const pool={}; const seen={};
+  sphs.forEach(sp=>{ for(let p=0;p<=6;p++){ rbGoalsFor(sp.id,p).forEach(id=>{ if(!seen[id]){ seen[id]=1; pool[id]=sp.id; } }); } });
+  (BANK.phrases||[]).forEach(x=>{ if(x.block==='GOAL'&&x.active!==false&&!seen[x.id]){ seen[x.id]=1; pool[x.id]=''; } });
+  const ids=Object.keys(pool).sort((a,b)=>a.localeCompare(b));
+  let out='<div class="card"><h2>2 · Конструктор целей</h2><p class="hint">'+
+    'Отмечайте цели — они попадут в документ («Цели на период»). Под каждой выбранной целью редактор показывает '+
+    'связанные приёмы и рекомендации, которые можно подхватить сразу. Внизу — форма новой цели (ID вида GL-NN присваивается автоматически).</p>';
+  out+=ids.map(id=>{ const p=byId(id); const on=listHas(S.goals,id);
+    const chip=p.sphere||pool[id];
+    return '<div class="rbrow"><span class="rbid">'+esc(id)+'</span>'+
+      (chip?sphereChip(chip):'')+'<div class="tx">'+esc(p.text)+'</div>'+addBtnV2('goals',id,on?'✓ убрать':'+ цель',chip||undefined)+'</div>'; }).join('');
+  const chosen=S.goals.filter(x=>x.src&&byId(x.src));
+  if(chosen.length){
+    out+='<h3 style="margin-top:14px">Связанные приёмы и рекомендации к выбранным целям</h3>';
+    chosen.forEach(g=>{ const p=byId(g.src); const lm=(p.links_meth||[]).filter(id=>byId(id));
+      const lr=(p.links_rec||[]).filter(id=>byId(id));
+      out+='<div class="rbgrp"><div class="small" style="font-weight:700;color:var(--acc)">'+esc(p.id)+': '+esc(p.text.slice(0,80))+(p.text.length>80?'…':'')+'</div>';
+      if(lm.length) out+='<div class="rbchips">'+lm.map(id=>'<button class="b ghost small" data-rbaddmeth="'+esc(id)+'|'+esc(g.sphere||'')+'">+ приём '+esc(id)+'</button>').join(' ')+'</div>';
+      if(lr.length) out+='<div class="rbchips">'+lr.map(id=>'<button class="b ghost small" data-rbaddrec="'+esc(id)+'|'+esc(g.sphere||'')+'">+ рекомендация '+esc(id)+'</button>').join(' ')+'</div>';
+      if(!lm.length&&!lr.length) out+='<div class="small muted">Связей в банке нет — добавьте приём вручную в секции 3.</div>';
+      out+='</div>'; });
+  }
+  out+='<details class="rbadd"><summary>+ Новая цель</summary>'+
+    '<div class="row"><div style="flex:2"><label class="f">Формулировка цели</label><input type="text" id="rbGoalText" placeholder="Развить / укрепить … (цель выводится из оценки 3–4)</div>'+
+    '<div><label class="f">Сфера</label><select id="rbGoalSphere"><option value="">— не привязывать —</option>'+
+    sphs.map(sp=>'<option value="'+esc(sp.id)+'"'+(sp.id===RB.sph?' selected':'')+'>'+esc(sp.name)+'</option>').join('')+'</select></div></div>'+
+    '<div class="small muted" id="rbGoalBindNote"></div>'+
+    '<button class="b small" id="rbGoalAdd" style="margin-top:6px">Добавить цель (ID: GL-'+String(rbNextId('GL').slice(3))+')</button>'+
+    '<div class="small muted" style="margin-top:4px">Если выбрана сфера и оценка — цель сразу привяжется к её ключу и будет предлагаться на этом уровне.</div>'+
+    '</details></div>';
+  return out;
+}
+function rbCardMethods(){
+  const chosen=S.goals.filter(x=>x.src&&byId(x.src));
+  let out='<div class="card"><h2>3 · Приёмы работы</h2><p class="hint">'+
+    'По каждой выбранной цели — все приёмы, привязанные к ней в банке. Отмеченные приёмы попадают в документ. '+
+    'Новый приём можно создать прямо здесь: он привяжется к выбранной цели (ID вида MT-NN автоматически).</p>';
+  if(!chosen.length) out+='<p class="small muted">Сначала отметьте хотя бы одну цель в секции 2.</p>';
+  chosen.forEach(g=>{ const p=byId(g.src); const lm=(p.links_meth||[]).filter(id=>byId(id));
+    out+='<div class="rbgrp"><div class="small" style="font-weight:700;color:var(--acc)">Цель '+esc(p.id)+': '+esc(p.text.slice(0,80))+(p.text.length>80?'…':'')+'</div>';
+    out+=lm.map(id=>{ const m=byId(id); const on=listHas(S.methods,id);
+      return '<div class="rbrow"><span class="rbid">'+esc(id)+'</span><div class="tx">'+esc(m.text)+'</div>'+addBtnV2('methods',id,on?'✓ убрать':'+ приём',g.sphere||undefined)+'</div>'; }).join('')||
+      '<div class="small muted">К этой цели приёмов в банке нет.</div>';
+    out+='<details class="rbadd"><summary>+ Новый приём к цели '+esc(p.id)+'</summary>'+
+      '<div class="row"><div style="flex:2"><label class="f">Формулировка приёма</label><input type="text" id="rbMethText_'+esc(p.id)+'" placeholder="Что конкретно делает специалист"></div>'+
+      '<div><label class="f">Привязать ещё к целям</label><input type="text" id="rbMethMore_'+esc(p.id)+'" placeholder="через запятую: GL-03, GL-04"></div></div>'+
+      '<button class="b small" data-rbaddmethnew="'+esc(p.id)+'" style="margin-top:6px">Добавить приём (ID: '+esc(rbNextId('MT'))+')</button></details>';
+    out+='</div>'; });
+  const orphanMeths=(BANK.phrases||[]).filter(x=>x.block==='METH'&&x.active!==false);
+  out+='<details class="rbadd"><summary>Все приёмы банка ('+orphanMeths.length+')</summary>'+
+    orphanMeths.map(m=>{ const on=listHas(S.methods,m.id);
+      return '<div class="rbrow"><span class="rbid">'+esc(m.id)+'</span><div class="tx">'+esc(m.text)+'</div>'+addBtnV2('methods',m.id,on?'✓ убрать':'+ приём')+'</div>'; }).join('')+
+    '</details>';
+  return out+'</div>';
+}
+function vEditor(){
+  return '<div class="card editor-hd"><h2>Редактор банка фраз</h2>'+
+    '<p class="hint">Отдельный режим работы с банком: фразы смотрятся и добавляются не плоской таблицей, а по логике документа — '+
+    'сферы и оценки → цели → приёмы. Все изменения хранятся в этом браузере и сразу действуют на обычный конструктор. '+
+    'Готовый банк выгружайте кнопкой «Экспорт JSON» и кладите файл в <span class="kbd">data/phrases_main.json</span>, '+
+    'затем <span class="kbd">python tools/build_main.py</span>.</p>'+
+    '<div class="statusbar">'+
+      '<button class="b gray small" id="edBack" data-goto="'+BANK_RETURN_STAGE+'">← Вернуться к документу</button>'+
+      '<button class="b ghost small" id="edExportJson">Экспорт JSON</button>'+
+      '<button class="b ghost small" id="edImport">Импорт JSON / CSV</button>'+
+      '<button class="b ghost small" id="edOpenTable">Табличный вид (правка)</button>'+
+      '<button class="b ghost small" id="edMentor">Фразы наставника</button>'+
+      '<button class="b danger small" id="edReset">Вернуть встроенный банк</button>'+
+      '<span class="small muted">Фраз активных: <b>'+bankPhraseCount()+'</b> · целей в документе: <b>'+S.goals.length+'</b></span>'+
+    '</div></div>'+ rbCardSphere() + rbCardGoals() + rbCardMethods();
+}
+function bindEditor(){
+  const sp=$('#rbSphere'); if(sp) sp.onchange=()=>{ RB.sph=sp.value; RB.ped=null; rbSave(); render(); };
+  $$('[data-rbped]').forEach(l=>l.onclick=()=>{ const a=l.dataset.rbped.split('|');
+    RB.sph=a[0]; RB.ped=parseInt(a[1],10); rbSave(); render(); });
+  const ba=$('#rbAsAdd'); if(ba) ba.onclick=()=>{
+    const t=$('#rbAsText'), st=$('#rbAsStatus'), mi=$('#rbAsMicro'), hn=$('#rbAsHint');
+    const p=rbAddPhrase({block:'AS', micro:mi?mi.value:'', status:st?st.value:'S2',
+      text:t?t.value:'', example_hint:hn?hn.value:''});
+    if(p){ rbBindPhraseToCell(RB.sph,RB.ped,p.id); SPH_MAPS=null; render(); } };
+  const ga=$('#rbGoalAdd'); if(ga) ga.onclick=()=>{
+    const t=$('#rbGoalText'), s=$('#rbGoalSphere');
+    const p=rbAddPhrase({block:'GOAL', text:t?t.value:''});
+    if(p){ if(s&&s.value){ const sid=s.value, sc=S.scores[sid]||{};
+        if(typeof sc.ped==='number') rbBindPhraseToCell(sid,sc.ped,p.id); }
+      toggleIn('goals',p.id,{sphere:(s&&s.value)||RB.sph||''}); } };
+  $$('[data-rbaddmeth]').forEach(b=>b.onclick=()=>{ const a=b.dataset.rbaddmeth.split('|');
+    toggleIn('methods',a[0],a[1]?{sphere:a[1]}:undefined); });
+  $$('[data-rbaddrec]').forEach(b=>b.onclick=()=>{ const a=b.dataset.rbaddrec.split('|');
+    toggleIn('recs',a[0],a[1]?{sphere:a[1]}:undefined); });
+  $$('[data-rbaddmethnew]').forEach(b=>b.onclick=()=>{ const gid=b.dataset.rbaddmethnew;
+    const t=$('#rbMethText_'+gid), more=$('#rbMethMore_'+gid);
+    const p=rbAddPhrase({block:'METH', text:t?t.value:''});
+    if(!p) return;
+    rbBindMethodToGoal(gid,p.id);
+    String(more&&more.value||'').split(/[,;]/).map(s=>s.trim()).filter(Boolean)
+      .forEach(g2=>{ if(byId(g2)) rbBindMethodToGoal(g2,p.id); });
+    const g=byId(gid);
+    toggleIn('methods',p.id,{sphere:(S.goals.find(x=>x.src===gid)||{}).sphere||''}); });
+  const ej=$('#edExportJson'); if(ej) ej.onclick=exportBankJson;
+  const ei=$('#edImport'); if(ei) ei.onclick=()=>{ const f=$('#fileBank'); if(f) f.click(); };
+  const et=$('#edOpenTable'); if(et) et.onclick=()=>{ S.stage=11; save(); render(); window.scrollTo(0,0); };
+  const em=$('#edMentor'); if(em) em.onclick=()=>openBank('AS','');
+  const er=$('#edReset'); if(er) er.onclick=()=>{
+    if(confirm('Вернуть встроенный банк? Все правки банка в этом браузере будут потеряны.')) resetBank(); };
+}
+
 function vStage9(){
   const blocks=(BANK.blocks||[]).map(b=>'<option value="'+esc(b.id)+'"'+(BK9.block===b.id?' selected':'')+'>'
     +esc(b.name)+' · '+esc(b.id)+'</option>').join('');
@@ -434,8 +649,8 @@ function vStage9(){
     +esc(m.name)+' · '+esc(m.id)+'</option>').join('');
   const stats=(BANK.statuses||[]).map(s=>'<option value="'+esc(s.code)+'"'+(BK9.status===s.code?' selected':'')+'>'
     +esc(s.code)+' — '+esc(s.name)+'</option>').join('');
-  return `<div class="card"><div class="statusbar"><button class="b gray small" data-goto="${BANK_RETURN_STAGE}">← Вернуться к работе</button></div></div>`+`<div class="card">
-    <h2>Банк фраз</h2>
+  return `<div class="card"><div class="statusbar"><button class="b gray small" data-goto="${BANK_RETURN_STAGE}">← Вернуться к работе</button><button class="b ghost small" data-goto="10">← К редактору банка</button></div></div>`+`<div class="card">
+    <h2>Банк фраз — табличный вид</h2>
     <p class="hint">Мастер-копия банка — файл <span class="kbd">data/phrases_main.json</span> (версия данных ${esc((BANK.meta||{}).version||'?')}).
     Фразы можно править и добавлять прямо здесь: изменения хранятся в этом браузере и сразу
     попадают в подбор фраз на всех шагах. Чтобы перенести правки на другой компьютер —
@@ -1388,7 +1603,8 @@ function bind(){
     else flash('Скопируйте вручную: '+t.slice(0,40)+'…'); };
   const bp=$('#btnPrint'); if(bp) bp.onclick=()=>window.print();
   const bb=$('#btnOpenBank9'); if(bb) bb.onclick=()=>{ BANK_RETURN_STAGE=9; S.stage=10; save(); render(); window.scrollTo(0,0); };
-  if(S.stage===10) bindBank9();         // скрытый шаг «Банк фраз» — таблица и её кнопки
+  if(S.stage===11) bindBank9();         // скрытый шаг «Таблица фраз» — таблица и её кнопки
+  if(S.stage===10) bindEditor();        // скрытый шаг «Редактор банка» — три секции-конструктора
 }
 function exportDocx(){
   const d=buildDoc();
@@ -1433,7 +1649,7 @@ const themeBtn=$('#btnTheme'); if(themeBtn) themeBtn.onclick=()=>{
 };
 /* «Банк фраз» в шапке: доступен с любого шага; возврат — на тот шаг, откуда открыли */
 const bankTopBtn=$('#btnBankTop'); if(bankTopBtn) bankTopBtn.onclick=()=>{
-  if(S.stage!==10) BANK_RETURN_STAGE=S.stage;
+  if(S.stage<10) BANK_RETURN_STAGE=S.stage;   // из редактора (10) и таблицы (11) возврат — туда, откуда зашли
   S.stage=10; save(); render(); window.scrollTo(0,0);
 };
 
@@ -1564,6 +1780,7 @@ function downloadBlob(blob,name){
 /* экспорт для тестов */
 if (typeof window !== 'undefined') window.V2API = {
   get S(){return S}, set S(v){S=v}, get BANK(){return BANK}, set BANK(v){BANK=v},
+  get __dom(){return document;},   // мини-DOM песочницы для тестов (в браузере — обычный document)
   render, buildDoc, docText, fileName, save,
   get STAGES(){return STAGES}, stageDone, v2Checklist, todayStr, projectFileName,
   PROJECT_TAG, SNAPSHOT_TAG, V2VER,
@@ -1573,6 +1790,9 @@ if (typeof window !== 'undefined') window.V2API = {
   toggleIn, listHas, litPriority, keyFor, blank, codeOf, scoreOf, sphereOfId, sphereName, groupBySphere,
   pedInfo, pedHint,
   vStage1, vStageObservations, vStage9, renderBank9, bindBank9Table, bindBank9, bank9Rows, bankPhraseCount, blockName, microName,
+  vEditor, bindEditor, rbCardSphere, rbCardGoals, rbCardMethods, rbPhrasesFor, rbGoalsFor, rbMethsForGoal,
+  rbAddPhrase, rbBindPhraseToCell, rbBindMethodToGoal, rbNextId, rbNextSeriesId, rbSave,
+  get RB(){return RB}, set RB(v){RB=v}, get LS_RB(){return LS_RB},
   statusName, bankNewPhrase, bankRenamePhrase, bankSetField, bankDeletePhrase, mergeBankRows,
   replaceBank, resetBank, importBankFile, exportBankJson, exportBankCsv, bankFileName,
   toCsv, parseCsv, splitCsvLine, persistBank, stripBank, loadBank, indexBank, migrateBankLegacy,
